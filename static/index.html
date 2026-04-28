@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DocAgent AI</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #020617, #0f172a);
+      color: white;
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 260px;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(10px);
+      padding: 20px;
+      border-right: 1px solid #1e293b;
+    }
+
+    .sidebar h2 {
+      margin-bottom: 15px;
+      font-size: 18px;
+    }
+
+    .sidebar input,
+    .sidebar select,
+    .sidebar button {
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+    }
+
+    .sidebar button {
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .sidebar button:hover {
+      background: #2563eb;
+      transform: scale(1.03);
+    }
+
+    .delete-btn {
+      background: #ef4444 !important;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 15px;
+      border-bottom: 1px solid #1e293b;
+      font-size: 18px;
+      font-weight: bold;
+      background: rgba(15, 23, 42, 0.7);
+    }
+
+    .chat {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 12px 15px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .user {
+      background: #3b82f6;
+      margin-left: auto;
+    }
+
+    .bot {
+      background: #1e293b;
+    }
+
+    .typing {
+      font-style: italic;
+      opacity: 0.7;
+    }
+
+    .input-area {
+      display: flex;
+      padding: 15px;
+      border-top: 1px solid #1e293b;
+    }
+
+    .input-area input {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      margin-right: 10px;
+      font-size: 14px;
+    }
+
+    .input-area button {
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: none;
+      background: #22c55e;
+      color: white;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .input-area button:hover {
+      background: #16a34a;
+      transform: scale(1.05);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="sidebar">
+  <h2>📁 Documents</h2>
+
+  <input type="file" id="fileInput">
+  <button onclick="upload()">Upload</button>
+
+  <select id="fileSelect"></select>
+
+  <button onclick="rebuild()">🔄 Build Index</button>
+
+  <button class="delete-btn" onclick="deleteFile()">🗑 Delete</button>
+</div>
+
+<div class="main">
+  <div class="header">🤖 DocAgent AI</div>
+
+  <div id="chat" class="chat"></div>
+
+  <div class="input-area">
+    <input id="question" placeholder="Ask your document...">
+    <button id="askBtn" onclick="ask()">Send</button>
+  </div>
+</div>
+
+<script>
+
+// Load files
+async function loadFiles() {
+  const res = await fetch('/api/files');
+  const data = await res.json();
+
+  const select = document.getElementById('fileSelect');
+  select.innerHTML = '';
+
+  if (!data.files || data.files.length === 0) {
+    select.innerHTML = "<option>No files</option>";
+    return;
+  }
+
+  data.files.forEach(file => {
+    const opt = document.createElement('option');
+    opt.value = file;
+    opt.textContent = file;
+    select.appendChild(opt);
+  });
+}
+
+// Chat UI helpers
+function addMessage(text, type) {
+  const chat = document.getElementById('chat');
+  const msg = document.createElement('div');
+  msg.className = 'message ' + type;
+  msg.innerText = text;
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function addTyping() {
+  const chat = document.getElementById('chat');
+  const msg = document.createElement('div');
+  msg.className = 'message bot typing';
+  msg.id = "typing";
+  msg.innerText = "AI is thinking...";
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function removeTyping() {
+  const t = document.getElementById("typing");
+  if (t) t.remove();
+}
+
+// Upload
+async function upload() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files[0]) return alert("Select file");
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  await fetch('/api/upload', { method: 'POST', body: formData });
+
+  addMessage("📄 File uploaded", "bot");
+  loadFiles();
+}
+
+// Rebuild index
+async function rebuild() {
+  addMessage("🔄 Building index...", "bot");
+  await fetch('/api/rebuild');
+  addMessage("✅ Index ready", "bot");
+}
+
+// Delete file
+async function deleteFile() {
+  const file = document.getElementById('fileSelect').value;
+  if (!file) return;
+
+  if (!confirm("Delete file?")) return;
+
+  const formData = new FormData();
+  formData.append("filename", file);
+
+  await fetch('/api/delete', { method: 'POST', body: formData });
+
+  addMessage("🗑 File deleted", "bot");
+  loadFiles();
+}
+
+// Ask AI (FIXED)
+async function ask() {
+  const input = document.getElementById('question');
+  const askBtn = document.getElementById('askBtn');
+  const file = document.getElementById('fileSelect').value;
+
+  const question = input.value;
+  if (!question) return;
+
+  addMessage(question, "user");
+  input.value = "";
+  askBtn.disabled = true;
+
+  addTyping();
+
+  const formData = new FormData();
+  formData.append("question", question);
+  formData.append("filename", file);  // ✅ IMPORTANT FIX
+
+  const res = await fetch('/api/query', {
+    method: 'POST',
+    body: formData
+  });
+
+  const data = await res.json();
+
+  removeTyping();
+  addMessage(data.answer || "No response", "bot");
+
+  askBtn.disabled = false;
+}
+
+// Init
+loadFiles();
+
+</script>
+
+</body>
+</html>
