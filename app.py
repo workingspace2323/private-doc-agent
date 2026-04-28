@@ -20,15 +20,25 @@ VECTOR_PATH = BASE_DIR / "data" / "vectorstore"
 DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
 VECTOR_PATH.mkdir(parents=True, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_path = BASE_DIR / "static"
+
+if static_path.exists():
+    app.mount("/static", StaticFiles(directory=static_path), name="static")
 
 
 # ---------------- UI ----------------
+from fastapi.responses import HTMLResponse
+
+from fastapi.responses import HTMLResponse
+
 @app.get("/")
 def home():
-    return FileResponse("static/index.html")
+    index_path = BASE_DIR / "static" / "index.html"
 
-
+    if index_path.exists():
+        return FileResponse(index_path)
+    
+    return HTMLResponse("<h1>App is running ✅</h1>")
 # ---------------- UPLOAD ----------------
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
