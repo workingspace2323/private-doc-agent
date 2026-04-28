@@ -1,72 +1,46 @@
 import os
-import pickle
+import json
 import numpy as np
 
 
 class VectorStore:
     def __init__(self, path):
         self.path = path
-        self.embeddings = None
-        self.chunks = None
+        self.vectors = []
+        self.metadata = []
 
     def build(self, embeddings, chunks):
-        # Ensure numpy array
-        self.embeddings = np.array(embeddings, dtype=np.float32)
-        self.chunks = chunks
+        self.vectors = embeddings
+        self.metadata = chunks
 
     def save(self):
         os.makedirs(self.path, exist_ok=True)
 
-        with open(os.path.join(self.path, "embeddings.pkl"), "wb") as f:
-            pickle.dump(self.embeddings, f)
+        with open(os.path.join(self.path, "vectors.json"), "w") as f:
+            json.dump(self.vectors, f)
 
-        with open(os.path.join(self.path, "chunks.pkl"), "wb") as f:
-            pickle.dump(self.chunks, f)
+        with open(os.path.join(self.path, "meta.json"), "w") as f:
+            json.dump(self.metadata, f)
 
     def load(self):
-        with open(os.path.join(self.path, "embeddings.pkl"), "rb") as f:
-            self.embeddings = pickle.load(f)
+        with open(os.path.join(self.path, "vectors.json"), "r") as f:
+            self.vectors = json.load(f)
 
-        with open(os.path.join(self.path, "chunks.pkl"), "rb") as f:
-            self.chunks = pickle.load(f)
+        with open(os.path.join(self.path, "meta.json"), "r") as f:
+            self.metadata = json.load(f)
 
     def exists(self):
-        return os.path.exists(os.path.join(self.path, "embeddings.pkl"))
+        return os.path.exists(os.path.join(self.path, "vectors.json"))
 
-    def search(self, query_embedding, k=3):
-        if self.embeddings is None or self.chunks is None:
-            return []
+    def search(self, query_vector, k=3):
+        vectors = np.array(self.vectors)
+        query = np.array(query_vector)
 
-        # 🔥 FIX: force correct shape
-        query_embedding = np.array(query_embedding, dtype=np.float32)
+        # cosine similarity
+        scores = np.dot(vectors, query) / (
+            np.linalg.norm(vectors, axis=1) * np.linalg.norm(query) + 1e-10
+        )
 
-        if query_embedding.ndim == 0:
-            return []  # invalid
+        top_k = np.argsort(scores)[-k:][::-1]
 
-        if query_embedding.ndim > 1:
-            query_embedding = query_embedding.flatten()
-
-        # Normalize embeddings
-        query_norm = np.linalg.norm(query_embedding)
-        if query_norm == 0:
-            return []
-
-        query_embedding = query_embedding / query_norm
-
-        embeddings_norm = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
-        embeddings_norm[embeddings_norm == 0] = 1
-
-        normalized_embeddings = self.embeddings / embeddings_norm
-
-        # Cosine similarity
-        scores = np.dot(normalized_embeddings, query_embedding)
-
-        # Get top-k indices
-        top_indices = np.argsort(scores)[-k:][::-1]
-
-        results = []
-        for idx in top_indices:
-            if idx < len(self.chunks):
-                results.append(self.chunks[idx])
-
-        return results
+        return [self.metadata[i] for i in top_k]
