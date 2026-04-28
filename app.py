@@ -4,36 +4,22 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 
 from core.document_loader import load_documents_from_folder
 from core.chunking import chunk_documents
 from core.embeddings import embed_texts
 from core.vector_store import VectorStore
-from core.llm import ask_llm
 
-
-# ---------------- APP ----------------
 app = FastAPI()
 
-# ---------------- CORS ----------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ---------------- PATHS ----------------
 BASE_DIR = Path(__file__).resolve().parent
+
 DOCUMENTS_PATH = BASE_DIR / "data" / "documents"
 VECTOR_PATH = BASE_DIR / "data" / "vectorstore"
 
 DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
 VECTOR_PATH.mkdir(parents=True, exist_ok=True)
 
-# ---------------- STATIC ----------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -54,7 +40,7 @@ async def upload(file: UploadFile = File(...)):
     return {"message": "Uploaded", "file": file.filename}
 
 
-# ---------------- FILE LIST ----------------
+# ---------------- LIST FILES ----------------
 @app.get("/api/files")
 def list_files():
     return {"files": os.listdir(DOCUMENTS_PATH)}
@@ -71,7 +57,10 @@ def rebuild_index():
     chunks = chunk_documents(docs)
     texts = [c["text"] for c in chunks if "text" in c]
 
-    embeddings = embed_texts(texts)
+    try:
+        embeddings = embed_texts(texts)
+    except Exception as e:
+        return {"error": f"Embedding failed: {str(e)}"}
 
     store = VectorStore(str(VECTOR_PATH))
     store.build(embeddings, chunks)
@@ -82,10 +71,9 @@ def rebuild_index():
 
 # ---------------- QUERY ----------------
 @app.post("/api/query")
-async def query(
-    question: str = Form(...),
-    filename: str = Form(default="")
-):
+async def query(question: str = Form(...), filename: str = Form(default="")):
+
+    print("Query:", question)
 
     store = VectorStore(str(VECTOR_PATH))
 
@@ -94,40 +82,29 @@ async def query(
 
     store.load()
 
-    query_vec = embed_texts([question])[0]
-    results = store.search(query_vec, k=3)
-
-    if not results:
-        return {"answer": "No relevant data found"}
-
-    context = "\n\n".join([r.get("text", "") for r in results])
-    answer = ask_llm(question, context)
-
-    return {"answer": answer}
-
-
-# ---------------- DELETE FILE (FINAL WORKING VERSION) ----------------
-@app.delete("/api/delete")
-def delete_file(filename: str = Query(...)):
-
-    safe_name = Path(filename).name
-    file_path = DOCUMENTS_PATH / safe_name
-
-    print("\n[DELETE REQUEST]", safe_name)
-    print("[FULL PATH]", file_path)
-    print("[EXISTS]", file_path.exists())
-
-    if not file_path.exists():
-        return {"error": "file not found", "file": safe_name}
-
     try:
-        file_path.unlink()
-        print("[DELETED SUCCESSFULLY]", file_path)
+        query_vec = embed_texts([question])[0]
+        results = store.search(query_vec, k=3)
 
-        return {
-            "status": "deleted",
-            "file": safe_name
-        }
+        if not results:
+            return {"answer": "No relevant data found"}
+
+        context = "\n\n".join([r["text"] for r in results if "text" in r])
+
+        return {"answer": context[:1000]}
 
     except Exception as e:
-        return {"error": str(e)}
+        print("ERROR:", str(e))
+        return {"answer": f"Error: {str(e)}"}
+
+
+# ---------------- DELETE FILE ----------------
+@app.delete("/api/delete")
+def delete_file(filename: str = Query(...)):
+    file_path = DOCUMENTS_PATH / filename
+
+    if file_path.exists():
+        file_path.unlink()
+        return {"status": "deleted"}
+
+    return {"error": "file not found"}

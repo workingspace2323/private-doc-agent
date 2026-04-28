@@ -36,7 +36,6 @@ class VectorStore:
         vectors = np.array(self.vectors)
         query = np.array(query_vector)
 
-        # cosine similarity
         scores = np.dot(vectors, query) / (
             np.linalg.norm(vectors, axis=1) * np.linalg.norm(query) + 1e-10
         )
